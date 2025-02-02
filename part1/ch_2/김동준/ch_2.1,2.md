@@ -396,7 +396,7 @@ public static List<String> filter(List<Person> people, Predicate<Person> predica
 }
 ```
 
-최종적으로 코드 라인이 간결해짐과 동시에 리팩토링을 위해 추가했던 `PredicateStrategy` 인터페이스 및 관련 구현체, `StrategyContext` 전략 전달 컨텍스트 클래스가 없이 람다식으로 선언형 리팩토링을 이뤄내면서 여러 원칙들을 준수시키고 향후의 확장성을 도모할 수 있게 됐다.
+최종적으로 코드 라인이 간결해짐과 동시에 리팩토링을 위해 추가했던 `PredicateStrategy` 인터페이스 및 관련 구현체, `StrategyContext` 전략 전달 컨텍스트 클래스 적용 없이 람다식으로 선언형 리팩토링을 이뤄내면서 여러 원칙들을 준수시키고 향후의 확장성을 도모할 수 있게 됐다.
 
 <img width="70%" alt="스크린샷 2025-02-02 오후 10 20 15" src="https://github.com/user-attachments/assets/c257726e-e7d4-433c-bfa3-9b2f3b596464" />
 
