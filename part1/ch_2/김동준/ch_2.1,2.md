@@ -170,6 +170,234 @@ for (Person person: people) {
 
 약간 이런 느낌?
 
-## 4) 다양한 동작을 전부 캡슐화하기 위한 인터페이스, 익명 구현 객체
+결론은, 단순 기준값에 그치지 않고 그 기준값을 활용하는 **동작(기능) 자체를 파라미터로 넘기자**는 것.
 
-## 5) 이것조차 간편하게 할 수 있는 스트림, 람다
+## 4) 인터페이스, 전략 패턴
+
+이제 파라미터화하기 위한 동작을 정의해보자. 핵심은 `신장 검증 동작`, `성별 검증 동작`을 파라미터화하되, 각각을 독립적으로 생각하면 결국 위의 문제점을 답습하는 것과 다를 바가 없어진다. 가장 처음 언급됐던 객체지향 원칙 중 OCP 위반을 해소하면서 동작을 정의하려면 동작의 **추상화**가 필요하고 자바에는 훌륭한 추상화 수단이 존재한다. 바로 인터페이스를 적용하는 것이다. 논리값을 검증하는 함수를 **`Predicate`**라 한다. 함수 적용을 **전략(`Strategy`)**라 명명하면서 추상화 인터페이스 및 구현 동작 기능들을 정의해보자.
+
+```java
+// 동작 추상화
+public interface PredicateStrategy {
+    boolean filter(Person person);
+}
+
+// 신장 검증 동작
+class HeightPredicateStrategy implements PredicateStrategy {
+    private final int standard;
+
+    public HeightPredicateStrategy(int standard) {
+        this.standard = standard;
+    }
+
+    @Override
+    public boolean filter(Person person) {
+        return person.getHeight() > standard;
+    }
+}
+
+// 성별 검증 동작
+class GenderPredicateStrategy implements PredicateStrategy {
+    private final Gender standard;
+
+    public GenderPredicateStrategy(Gender standard) {
+        this.standard = standard;
+    }
+
+    @Override
+    public boolean filter(Person person) {
+        return person.getGender().equals(standard);
+    }
+}
+```
+
+위 코드를 통해서 기존 코드의 수정은 최소화시킴과 동시에 확장에는 구현체를 추가만 하면 되는 방향으로 OCP 위반을 해소할 수 있다. 이제 이 인터페이스를 메소드의 파라미터로 넘기는 방향으로 코드를 리팩토링 해보자. 나아가 이름을 리스트로 반환시켜 결과를 보기 쉽게 적용해보자.
+
+```java
+public static void main(String[] args) {
+    List<Person> people = List.of(
+            new Person("김동준", 184, Gender.MALE),
+            new Person("송아름", 200, Gender.FEMALE),
+            new Person("채호연", 300, Gender.MALE),
+            new Person("허예림", 400, Gender.FEMALE),
+            new Person("홍은영", 500, Gender.FEMALE)
+    );
+
+    // 신장 2m 50cm 넘는 사람들 분류
+    PredicateStrategy heightPredicate = new HeightPredicateStrategy(250);
+    System.out.println("신장 분류 : " + filter(people, heightPredicate));
+
+    // 성별이 여자인 사람들 분류
+    PredicateStrategy genderPredicate = new GenderPredicateStrategy(Gender.FEMALE);
+    System.out.println("성별 분류 : " + filter(people, genderPredicate));
+}
+
+public static List<String> filter(List<Person> people, PredicateStrategy strategy) {
+    List<String> result = new ArrayList<>();
+
+    for (Person person: people) {
+        if (strategy.filter(person)) result.add(person.getName());
+    }
+
+    return result;
+}
+```
+
+메소드가 상당히 깔끔해졌으며 분류 기준이 달라져도(심지어 미래 또다른 분류 기준이 추가돼도) `filter()` 메소드 내부에서 모든 것이 처리될 수 있다. 또한, 로직이 직접 객체를 들여다보며 검증하는 것이 아닌, 객체가 흘러가면서 자동으로 검증돼서 분류되는 이른바 컨베이어 벨트 구조처럼 로직을 재정의할 수 있게 됐다.
+
+여기서 조금 더 나아가서 동작의 정의와 동작의 전달을 책임적으로 분리하기 위한 **동작 컨텍스트**를 생각해서 추가 구현할 수도 있다.
+
+```java
+// 동작 컨텍스트
+public class StrategyContext {
+    PredicateStrategy strategy;
+
+    // 전략 교체
+    void setStrategy(PredicateStrategy strategy) {
+        this.strategy = strategy;
+    }
+
+    // 전략 실행
+    boolean doStrategy(Person person) {
+        return this.strategy.filter(person);
+    }
+}
+```
+```java
+public static void main(String[] args) {
+    List<Person> people = List.of(
+            new Person("김동준", 184, Gender.MALE),
+            new Person("송아름", 200, Gender.FEMALE),
+            new Person("채호연", 300, Gender.MALE),
+            new Person("허예림", 400, Gender.FEMALE),
+            new Person("홍은영", 500, Gender.FEMALE)
+    );
+
+    StrategyContext context = new StrategyContext();
+
+    // 신장 2m 50cm 넘는 사람들 분류
+    context.setStrategy(new HeightPredicateStrategy(250));
+    System.out.println(filter(people, context));
+
+    // 성별이 여자인 사람들 분류
+    context.setStrategy(new GenderPredicateStrategy(Gender.FEMALE));
+    System.out.println(filter(people, context));
+}
+
+public static List<String> filter(List<Person> people, StrategyContext context) {
+    List<String> result = new ArrayList<>();
+
+    for (Person person: people) {
+        if (context.doStrategy(person)) result.add(person.getName());
+    }
+
+    return result;
+}
+```
+
+여기까지 설명한 내용은, 동작의 파라미터화를 설명하는 주제에 한정되는 것이 아닌 **전략 패턴**의 적용 개요까지 묶은 것이다. 즉 어떠한 동작(전략)을 메소드에 파라미터로 전달하기 위한 구현 패턴이 전략 패턴이고 이를 함수형 프로그래밍에서 실현하는 데에 활용할 수 있는 것이다. 실제로 스트림 등에서의 인자 선택 및 전달 등은 전략 패턴의 개념을 일부 활용하고 있다.
+
+## 5) 익명 클래스, 컨텍스트와 람다 표현식
+
+전략이 일회성이라면 익명 클래스를 활용하는 것이 더 간편할 수도 있다. 굳이 일회성에 불과한 검증 조건을 필드를 포함하는 별개의 클래스를 정의하지 않고 **익명 클래스를 활용**하는 것이 더 나을 수도 있다. 인터페이스는 놔둔 상태에서 익명 클래스를 메소드 파라미터로 컨텍스트에 담아 전달한다.
+
+```java
+public static void main(String[] args) {
+    List<Person> people = List.of(
+            new Person("김동준", 184, Gender.MALE),
+            new Person("송아름", 200, Gender.FEMALE),
+            new Person("채호연", 300, Gender.MALE),
+            new Person("허예림", 400, Gender.FEMALE),
+            new Person("홍은영", 500, Gender.FEMALE)
+    );
+
+    StrategyContext context = new StrategyContext();
+
+    // 신장 분류 익명 구현체 전환
+    context.setStrategy(new PredicateStrategy() {
+        @Override
+        public boolean filter(Person person) {
+            return person.getHeight() > 250;
+        }
+    });
+    System.out.println(filter(people, context));
+
+    // 성별 분류 익명 구현체 전환
+    context.setStrategy(new PredicateStrategy() {
+        @Override
+        public boolean filter(Person person) {
+            return person.getGender().equals(Gender.FEMALE);
+        }
+    });
+    System.out.println(filter(people, context));
+}
+
+public static List<String> filter(List<Person> people, StrategyContext context) {
+    List<String> result = new ArrayList<>();
+
+    for (Person person: people) {
+        if (context.doStrategy(person)) result.add(person.getName());
+    }
+
+    return result;
+}
+```
+
+여기서 아마 자바 버전이 높으면 저 **익명 표현들이 무시 처리되면서 람다로 전환하라는 권고문**이 뜰 것이다. 사실 익명 표현이 생각만큼 깔끔해보이지 않고 어쩌면 더 복잡해질 수도 있다. 그렇기 때문에 아까 위에서 언급했던 논리값을 검증하는 인터페이스 `Predicate<T>`를 구현하는 람다식을 적용해보자.
+
+```java
+public static void main(String[] args) {
+    List<Person> people = List.of(
+            new Person("김동준", 184, Gender.MALE),
+            new Person("송아름", 200, Gender.FEMALE),
+            new Person("채호연", 300, Gender.MALE),
+            new Person("허예림", 400, Gender.FEMALE),
+            new Person("홍은영", 500, Gender.FEMALE)
+    );
+
+    StrategyContext context = new StrategyContext();
+
+    // 신장 분류 람다식 전환
+    context.setStrategy(person -> person.getHeight() > 250);
+    System.out.println(filter(people, context));
+
+    // 성별 분류 람다식 전환
+    context.setStrategy(person -> person.getGender().equals(Gender.FEMALE));
+    System.out.println(filter(people, context));
+}
+```
+
+표현이 훨씬 간결해짐과 더불어 **람다식 자체가 전략을 정의함과 동시에 전달**도 맡는 것을 볼 수 있다. 즉, 기존의 전략 패턴에서 전략 전달을 위한 컨텍스트의 역할과 전략 정의를 위한 인터페이스 구현체를 람다식 하나에서 전부 표현할 수 있게 됐으므로 컨텍스트는 걷는다. 이때, 논리값을 판별하는 `Predicate<T>` 인터페이스 타입을 직접 파라미터로 명시시킨다.
+
+<img width="70%" alt="스크린샷 2025-02-02 오후 10 07 43" src="https://github.com/user-attachments/assets/1274ecc7-d219-4e31-a51f-ac77fb57a727" />
+
+```java
+public static void main(String[] args) {
+    List<Person> people = List.of(
+            new Person("김동준", 184, Gender.MALE),
+            new Person("송아름", 200, Gender.FEMALE),
+            new Person("채호연", 300, Gender.MALE),
+            new Person("허예림", 400, Gender.FEMALE),
+            new Person("홍은영", 500, Gender.FEMALE)
+    );
+
+    System.out.println(filter(people, person -> person.getHeight() > 250));
+    System.out.println(filter(people, person -> person.getGender().equals(Gender.FEMALE)));
+}
+
+public static List<String> filter(List<Person> people, Predicate<Person> predicate) {
+    List<String> result = new ArrayList<>();
+
+    for (Person person: people) {
+        if (predicate.test(person)) result.add(person.getName());
+    }
+
+    return result;
+}
+```
+
+최종적으로 코드 라인이 간결해짐과 동시에 리팩토링을 위해 추가했던 `PredicateStrategy` 인터페이스 및 관련 구현체, `StrategyContext` 전략 전달 컨텍스트 클래스가 없이 람다식으로 선언형 리팩토링을 이뤄내면서 여러 원칙들을 준수시키고 향후의 확장성을 도모할 수 있게 됐다.
+
+<img width="70%" alt="스크린샷 2025-02-02 오후 10 20 15" src="https://github.com/user-attachments/assets/c257726e-e7d4-433c-bfa3-9b2f3b596464" />
+
+이상의 기록이 명령형 프로그래밍에서 선언형, 즉 함수형 프로그래밍을 기반으로 리팩토링하는 과정이다.
