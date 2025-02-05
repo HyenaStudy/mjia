@@ -1,0 +1,36 @@
+name: auto branch pull process
+
+on:
+  push:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  sync-branches:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        branch: [ "dongjun", "ahreum" ]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Fetch all branches
+        run: git fetch --all
+
+      - name: Sync Pull with ${{ matrix.branch }} branch
+        run: |
+          git config --global user.name "kimD0ngjun"
+          git config --global user.email "chickentasty0112@gmail.com"
+          git config --global pull.rebase false
+          git checkout ${{ matrix.branch }}
+          git pull origin ${{ matrix.branch }}
+          git pull origin main
+          git push origin ${{ matrix.branch }}
