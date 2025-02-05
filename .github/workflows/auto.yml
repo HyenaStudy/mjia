@@ -9,8 +9,11 @@ permissions:
   contents: write
 
 jobs:
-  build:
+  sync-branches:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        branch: [ "dongjun", "ahreum" ]
 
     steps:
       - name: Checkout repository
@@ -22,11 +25,11 @@ jobs:
       - name: Fetch all branches
         run: git fetch --all
 
-      - name: Sync Pull with dongjun branch
+      - name: Sync Pull with ${{ matrix.branch }} branch
         run: |
           git config --global user.name "kimD0ngjun"
           git config --global user.email "chickentasty0112@gmail.com"
-          git checkout dongjun
-          git pull origin dongjun
+          git checkout ${{ matrix.branch }}
+          git pull origin ${{ matrix.branch }}
           git pull origin main
-          git push origin dongjun
+          git push origin ${{ matrix.branch }}
