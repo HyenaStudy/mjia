@@ -1,8 +1,6 @@
 # 람다 이모저모
 
-## 1. 기본 문법
-
-### (1) 함수형 인터페이스
+## 1. 함수형 인터페이스
 
 람다식은 함수형 인터페이스(`@FunctionalInterface`)를 구현하는 것으로부터 시작됨. 이 함수형 인터페이스의 특징은 **무조건 추상 메소드를 하나만 가질 것**이다. 자바 API가 기본적으로 제공하는 함수형 인터페이스들(`Predicate`, `Comparator`, `Runnable`, `Callable`) 외에도 개발자가 커스텀하게 함수형 인터페이스 선언이 가능
 
@@ -95,11 +93,11 @@ class Lambda {
 위의 이슈를 해결하려면 결국 람다식 앞에 타입을 명시적으로 추가하면서 형변환을 해줘야 해결할 수 있다.
 
 
-### (2) 변수 캡처(Variable Capture)와 클로저(Closure)
+## 2. 변수 캡처(Variable Capture)와 클로저(Closure)
 
 **변수 캡처**는 람다식이나 익명 클래스가 외부 변수의 값을 사용할 때 발생하는 현상으로, 람다식 내부에서 외부 변수에 접근하는 방식이다.
 
-#### 원시 타입의 변수 캡처
+### 1) 원시 타입의 변수 캡처
 
 <img width="80%" alt="스크린샷 2025-02-16 오후 7 53 43" src="https://github.com/user-attachments/assets/a4bdab85-2b66-4ee6-bc09-9e0e5554bb7e" />
 <img width="80%" alt="스크린샷 2025-02-16 오후 8 01 06" src="https://github.com/user-attachments/assets/d83ca0fa-53f6-4707-91d1-f55bd08f98f2" />
@@ -114,7 +112,7 @@ class Lambda {
 
 이때까지는 원시 타입의 변수 캡처에 대한 설명이었고, 참조 타입의 변수 캡처는 설명이 조금 달라지게 된다.
 
-#### 참조 타입의 변수 캡처
+### 2) 참조 타입의 변수 캡처
 
 ```java
 class Example {
@@ -148,9 +146,85 @@ class Example {
 
 <img width="80%" alt="스크린샷 2025-02-17 오전 12 18 54" src="https://github.com/user-attachments/assets/f1607fbe-b034-44a4-bd86-b4d5274ac670" />
 
-#### 클로저
+### 3) 클로저
 
-**클로저**는 람다식이나 익명 클래스가 외부 변수의 값을 캡처하고 그 변수를 계속 유지하는 성질을 뜻한다.
+**클로저**는 람다식이나 익명 클래스가 외부 변수의 값을 캡처하고 그 변수를 계속 유지하는 성질이자, 함수와 그 함수가 참조하는 외부 변수들을 함께 묶은 객체을 뜻한다. 사실 뭔 말하는지 잘 모르겠다. 그만큼 어려운 개념이긴 하다. 하나씩 천천히 정리해보자면...
 
+```java
+import java.util.function.IntSupplier;
 
+public class Closure {
+    public static void main(String[] args) {
+        IntSupplier counter = closure(); // 클로저 생성
 
+        System.out.println("변수 값: " + counter.getAsInt());
+        System.out.println("변수 값: " + counter.getAsInt());
+        System.out.println("변수 값: " + counter.getAsInt());
+    }
+
+    // IntSupplier : 매개변수를 받지 않고 int 값을 반환하는 함수형 인터페이스
+    static IntSupplier closure() {
+        int[] count = {0};
+        return () -> ++count[0]; // IntSupplier 타입 람다식이 외부 변수(배열)인 count 캡처
+    }
+}
+```
+
+다음과 같은 예제가 있다고 가정하자. 함수형 프로그래밍에서는 **함수가 일급 객체로 취급**된다. 그렇기 때문에 정적 메소드인 `closure()` 또한 람다식을 반환하는 함수형 객체라고도 볼 수 있다. 아까까지 봤던 변수 캡처가 `closure()` 메소드 내부에서 일어나고 있는 것을 볼 수 있다. `count`라는 배열 참조 타입의 변수가 `return`되는 람다식에 의해 캡처되고 있다.
+
+이제 `counter` 변수의 추상 메소드의 구현체인 람다식을 `getAsInt()` 메소드 호출로 동작시켜보자.
+
+<img width="80%" alt="스크린샷 2025-02-17 오전 1 47 50" src="https://github.com/user-attachments/assets/88bdab74-56e5-4dec-9614-fdfd28dcf93d" />
+
+`counter` 변수로부터 호출한 메소드로 인해 람다식 `() -> ++count[0]`이 동작하면서 `count[0]`의 변수 값이 1씩 가산되는 것을 확인할 수 있다. 분명히 `closure()` 메소드 입장에서는 외부인 `main(String[] args)`에서 람다식이 호출됐음에도 불구하고 `count` 배열의 내부 값이 영향을 받아 변화하고 있다. 이것이 발생할 수 있는 이유가 바로 클로저 때문이다. 정리하자면,
+
+- `counter` 변수는 `closure()` 메서드에서 반환된 람다식, `() -> ++count[0]`을 가리킴
+- 람다식 내부에서 **(람다식 입장에서의) 외부 변수 `count`**를 캡처하고, `count[0]` 값을 변경
+- 람다식은 `closure()` 메서드 내에서 정의된 `count` 배열을 캡처하고 있기 때문에, `counter`가 호출될 때마다 `count[0]`의 값이 가산 갱신
+- `closure()` 메서드는 람다식이 (람다식 입장에서의) 외부 상태(여기서는 `count[0]`)를 기억하고 있기 때문에, 그 상태가 갱신됐던 값으로 계속 유지
+
+참고로 `int`로 착각할 수 있는데, `count`는 배열인 참조 타입이다. 그렇기 때문에 그 내부 요소의 값이 변해도 참조는 유지되기 때문에 캡처가 유효한 것이다. 핵심은 람다식(`() -> ++count[0]`) 내부에서 외부 변수(`count`)의 값이 변경(`++count[0]`)되더라도, 그 변수는 람다식 외부에서 정의된 상태(**그 호출로 인한 변화**)를 기억할 수 있는 것이 클로저다.
+
+~~와씨 드럽게 어렵네~~
+
+#### 다른 언어에서의 클로저
+
+클로저는 자바에 한정된 개념이 아닌, 웬만한 함수형 프로그래밍을 채택하는 언어에서 등장하는 성질이다. 자바는 함수형 프로그래밍이 익명 클래스와 람다식을 통해 실현될 수 있어서 객체지향 관점에서 자주 접하기 힘든 개념이지만, 스크립트 언어인 자바스크립트와 파이썬에서는 꽤나 쉽고 빈번하게 접하는 개념이다.
+
+```js
+// JavaScript
+
+function closure() {
+    let count = 0; // 외부 변수
+
+    return function() {
+        count++; // 외부 변수 값 변경
+        return count;
+    }
+}
+
+const counter = closure(); // 클로저 반환
+console.log(counter()); // 1
+console.log(counter()); // 2
+console.log(counter()); // 3
+```
+```py
+# Python
+
+def closure():
+    count = 0  # 외부 변수
+
+    def counter():
+        nonlocal count  # 외부 변수에 접근
+        count += 1  # 외부 변수 값 변경
+        return count
+
+    return counter
+
+counter = closure()  # 클로저 반환
+print(counter())  # 1
+print(counter())  # 2
+print(counter())  # 3
+```
+
+## 3. 함수형 프로그래밍에서의 람다식 활용
