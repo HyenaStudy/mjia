@@ -232,3 +232,61 @@ print(counter())  # 3
 사실 클로저는 함수형 프로그래밍에서 매우 중요한 개념으로 다뤄진다. 그 이유는, 클로저가 상태 캡처, 불변성, 함수 조합, 비동기 처리 등 여러 함수형 프로그래밍의 원칙들을 효과적으로 구현할 수 있게 해주는 역할로써 존재하기 때문이다. 그렇지만 자바의 태생적인 존재 이유가 **객체지향 프로그래밍**의 실현이라 봐도 무방하기 때문에 다른 언어들에 비해 함수형 프로그래밍의 실현도가 낮은 편이고, 더불어서 클로저의 중요도 비중도 낮은 편이다. 그럼에도 불구하고 자바 8 이후에 함수형 프로그래밍을 위한 다양한 도구들이 도입되면서 클로저 개념 역시 도입됐다는 것은 자바의 확장성을 꾀하겠다는 의도가 아닐까 싶다... ~~지만 벌써 LTS 21을 바라보고 있다.~~
 
 그래도 자바에서의 클로저 존재 의의를 조금 더 살펴보자면, 위의 예제에서 봤던 것처럼 **무분별한 변수의 전역화를 방지할 수 있다는 점**이 가장 큰 것 같다. 그와 더불어 변수의 갱신 기억을 위해 별개의 클래스를 정의하지 않아도 기억이 가능하다는 점 정도? 클로저의 중요성과 함수형 프로그래밍에서의 정확한 동작 원리를 파악하고 활용도를 높이려면 다른 프로그래밍 언어 학습도 필요하다. 일단 자바스크립트 공부하던 시절에 너무 어려워서 무릎 꿇었던 클로저를 어느 정도 감 잡은 듯해서 나는 만족:D
+
+클로저가 함수형 프로그래밍에서 중요한 이유는 다음과 같다.
+
+#### (1) 상태를 기억하기 때문에 함수형 프로그래밍에서의 캡슐화 실현 가능
+
+아까 위에서 본 클로저 예제를 보자.
+
+```java
+import java.util.function.IntSupplier;
+
+public class Closure {
+    // Controller (count 변수에 직접 접근할 수는 없지만, counter를 통해 조작할 수 있음)
+    public static void main(String[] args) {
+        IntSupplier counter = closure();  // count 변수를 감싸고 있는 클로저를 반환
+
+        System.out.println("변수 값: " + counter.getAsInt());
+        System.out.println("변수 값: " + counter.getAsInt());
+        System.out.println("변수 값: " + counter.getAsInt());
+    }
+
+    // Service (count 변수를 직접 노출하지 않고, 클로저를 통해서만 접근 가능)
+    static IntSupplier closure() {
+        int[] count = {0};  // 외부에서 직접 접근 불가능한 상태 변수
+        return () -> ++count[0];  // count 값을 증가시키는 클로저 반환
+    }
+}
+```
+
+`IntSupplier` 타입의 람다식을 반환하는 `closure()` 메소드를 서비스로 생각하고 `main(String[] args)` 정적 메소드를 컨트롤러로 생각해보면, 서비스의 변수라 할 수 있는 `count`는 컨트롤러에 직접 노출되지 않는다. 하지만 해당 변수를 캡처한 람다식을 통해 외부에서는 직접 접근할 수 없는 상태를 유지하면서도, 제공된 인터페이스를 통해 안전하게 값을 변경할 수 있다. 따라서 클로저를 활용하여 캡슐화를 실현하면서도 상태를 유지하는 함수를 만들 수 있다.
+
+#### (2) 고차함수와의 응용성
+
+클로저를 활용하면 동일한 고차함수여도 다양한 기준을 제시할 수 있는 등, 범용성있게 활용할 수 있다. 아래 예제를 보자.
+
+```java
+import java.util.function.IntPredicate;
+
+public class ClosureHigherOrderFunction {
+
+    // Service: 특정 값 이상만 허용하는 조건을 가진 클로저 반환 (고차 함수)
+    static IntPredicate thresholdFilter(int threshold) {
+        return value -> value >= threshold; // threshold 변수 캡처
+    }
+
+    // Controller
+    public static void main(String[] args) {
+        IntPredicate isOver10 = thresholdFilter(10);
+        IntPredicate isOver20 = thresholdFilter(20);
+
+        System.out.println("<isOver10> 15는 기준에 속할까? : " + isOver10.test(15));
+        System.out.println("<isOver20> 15는 기준에 속할까? : " + isOver20.test(15));
+    }
+}
+```
+<img width="80%" alt="스크린샷 2025-02-17 오후 5 01 14" src="https://github.com/user-attachments/assets/d2ebb61c-d52d-4781-b11e-85747f38a029" />
+
+
+같은 클로저를 반환했음에도 변수를 기억하는 성질 때문에 다양한 기능을 구현하면서 코드의 재사용성이 증가하고 다형성을 실현할 수 있게 된다. 이것을 활용하여 비동기 프로그래밍에서 클로저를 강력하게 활용할 수 있을 것 같은데 아직 예제를 찾아보진 못함 ㅎ;
