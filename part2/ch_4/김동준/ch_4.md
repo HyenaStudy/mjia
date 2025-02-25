@@ -223,5 +223,45 @@ IntStream.iterate(1, n -> n + 1) // 1부터 시작해서 1씩 증가하는 무�
         .forEach(System.out::println); // 출력
 ``` 
 
+### 2) 소모성
+
+스트림은 많은 중간 연산들을 거쳐서 최종 연산이 이뤄지게 된다. 중간 연산들은 매핑, 슬라이싱, 필터링, 검색 등에 해당하는 연산이고, 최종 연산은 전체 리스트화, 부분 리스트화 등에 해당하는 연산이다. 여기서 중간 연산은 **새로운 스트림을 반환**하고, 최종 연산은 **스트림을 소모**한다는 특징이 있다. 그래서 최종 연산이 마무리된 스트림은 이미 소모됐기 때문에 다시 사용하면 런타임 예외가 발생한다.
+
+```java
+public static void main(String[] args) {
+    List<Person> people = List.of(
+            new Person("김동준", 184, Gender.MALE),
+            new Person("송아름", 200, Gender.FEMALE),
+            new Person("채호연", 300, Gender.MALE),
+            new Person("홍은영", 400, Gender.FEMALE),
+            new Person("허예림", 500, Gender.FEMALE)
+    );
+
+    // 중간 연산 : 새로운 스트림 반환
+    Stream<String> stream = people.stream()
+            .peek(person -> System.out.println("> 초기 데이터 명칭: " + person.name()))
+            .filter(person -> {
+                        System.out.println("필터링 데이터 명칭: " + person.name());
+                        return person.height() < 300;})
+            .map(person -> {
+                        System.out.println("매핑 데이터 명칭: " + person.name());
+                        return "키가 작은 " + person.name();});
+
+    // 최종 연산 : 스트림 소모
+    stream.forEach(System.out::println);
+
+    // 이미 소모됐기 때문에 문법적으로는 옳으나 런타임 예외가 발생
+    stream.forEach(System.out::println);
+}
+```
+
+<img width="80%" alt="스크린샷 2025-02-25 오후 6 44 50" src="https://github.com/user-attachments/assets/38829aa6-7f2e-41f9-a532-35fde20881fe" />
 
 
+앞서 말했듯, 스트림은 지연 연산 전략을 채택했다. 즉, 최종 연산이 호출되기 전까지 연산은 미뤄지게 된다.
+
+위에서 본 코드에서 `Stream<String>` 타입의 `stream` 변수에는 **중간 연산까지의 중간 결과가 담겨져 있는 것이 아니다.** 그저 연산을 어떻게 할 지에 대한 정보만을 가지고 있을 뿐이다. 이 특징이 스트림이 파이프라인을 제공한다는 점과 통하는 부분인데, 말 그대로 **연산을 위한 파이프라인(방법)을 제공하는 데에 그칠 뿐, 중간 연산 결과를 어딘가에 저장하지 않는다.**
+
+중간 연산 방법만을 명시했을 뿐인데 최종 연산 시점에서 유연한 계산이 가능해지는 이유는, 저번에 익혔던 람다식의 변수 캡처가 여기서 적용되기 때문이다. 중간 연산마다 고차함수 인자로써 들어있는 람다식이 외부의 초기 데이터를 캡처해서 연산에 활용하게 되는 것이다.
+
+마지막으로 최종 연산이 이뤄지면 스트림은 소모되며, 이는 메모리 어딘가에 저장하지 않음을 의미한다. 이를 통해 메모리 효율성을 이뤄낼 수 있게 된다.
