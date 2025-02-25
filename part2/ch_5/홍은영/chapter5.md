@@ -35,7 +35,8 @@ List<Integer> wordLengths = words.stream()
 
 - `flatMap(Function<T, Stream<R>>)`  
 여러 개의 스트림을 하나의 평면화된 스트림으로 변환
-<br>
+<img src="https://github.com/user-attachments/assets/1a81bc28-b07c-44cc-9ab1-b039d4c112d0" width="500">
+<br><br><br>
 
 ### 4. 검색과 매칭
 - `anyMatch`
