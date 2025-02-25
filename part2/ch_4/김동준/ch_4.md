@@ -73,10 +73,155 @@ result.stream().filter(Element::isMeetTHeCreteria).toList();
 
 >- 저장소 없음 : 컬렉션은 일반적으로 물리적 데이터 집합인 반면, 스트림은 작업 파이프라인에 제공되는 논리적인 뷰
 >- 본질적 기능 : 스트림에 대한 작업은 결과를 생성하지만 그 소스는 수정되지 않음. 예를 들어 스트림에 필터링을 호출하면 원래 컬렉션에서 스트림을 제거하는 대신 새 스트림을 반환
->- 지연 실행: 필터링, 매핑 등과 같은 많은 스트림 연산을 한꺼번에 묶어 터미널 연산을 사용하여 한 번에 실행. 이 기법은 연산을 처리하기 위한 최적화된 실행 전략 생성
+>- 지연 연산: 필터링, 매핑 등과 같은 많은 스트림 연산을 한꺼번에 묶어 터미널 연산을 사용하여 한 번에 실행. 이 기법은 연산을 처리하기 위한 최적화된 실행 전략 생성
 >- 무제한 사이즈: 컬렉션과 다르게 무한 스트림이 존재. limit(n) 또는 findFirst()와 같은 단락 연산을 사용하면 무한 스트림에 대한 계산을 유한한 시간 내에 완료
 >- 소모성: 스트림의 요소는 스트림의 수명 동안 한 번만 방문. 반복자와 마찬가지로 소스의 동일한 요소를 다시 방문하려면 새 스트림을 생성해야 함
 
-### 1) 저장소 없음
+이들 중에서 핵심은 **지연 연산**과 **소모성**이다. 지연 실행을 이해하면 무제한 사이즈가 자연스럽게 연계되고, 소모성을 이해하면 저장소 없음이 자연스럽게 연계된다.
 
-## 3. 스트림 인터페이스
+### 1) 지연 연산
+
+다른 말로는 지연 연산이라고도 할 수 있다. 아래와 같은 일련의 데이터가 있다.
+
+```java
+public static void main(String[] args) {
+    List<Person> people = List.of(
+            new Person("김동준", 184, Gender.MALE),
+            new Person("송아름", 200, Gender.FEMALE),
+            new Person("채호연", 300, Gender.MALE),
+            new Person("홍은영", 400, Gender.FEMALE),
+            new Person("허예림", 500, Gender.FEMALE)
+    );
+
+    // ...
+```
+
+그리고 이것들을 신장 기준에 따라서 분류를 하는 메소드를 명령형(반복문)과 선언형(스트림)으로 나눠서 작성해본다.
+
+```java
+// 명령형
+static void calculateByCollection(List<Person> people) {
+    List<Person> result = new ArrayList<>();
+
+    for (Person person: people) {
+        if (person.height() < 300) result.add(person);
+    }
+
+    System.out.println(result);
+}
+
+// 선언형
+static void calculateByStream(List<Person> people) {
+    List<Person> result = people.stream()
+            .filter(p -> p.height() < 300)
+            .toList();
+
+    System.out.println(result);
+}
+```
+
+이제 각 메소드를 실행하면서 디버깅을 해본다. 먼저 명령형으로 작성한 경우부터 확인해보자.
+
+<img width="80%" alt="스크린샷 2025-02-25 오후 4 44 17" src="https://github.com/user-attachments/assets/aedce8f0-4894-4afc-a8ca-5a2fdb4e346a" />
+
+코드 라인에 따라 반복문 내부에서 연산(`person.height() < 300`)이 이뤄지면서 조건을 만족하는 요소(`Person`)를 결과 리스트(`result`)에 담는 과정이 실시간으로 이뤄지고 있다. 반면 스트림 연산이 이뤄지는 경우는 아래와 같다.
+
+<img width="80%" alt="스크린샷 2025-02-25 오후 4 52 02" src="https://github.com/user-attachments/assets/5e6fd30a-1fb2-479f-a3b2-ff8746ca4032" />
+
+파란색 라인(34번째 라인)까지 디버깅이 이뤄져도 아까 반복문과는 다르게 연산이 이뤄지지 않는 것을 확인할 수 있다. 즉, 최종 연산인 `toList()`가 호출될 때까지 연산이 이뤄지지 않는다. 여기서 `toList()`를 호출하면 작성해둔 람다식으로 넘어가 연산이 이뤄지게 된다.
+
+<img width="80%" alt="스크린샷 2025-02-25 오후 4 54 45" src="https://github.com/user-attachments/assets/ca81bbaa-33f6-4bd5-851d-3ea5b5cee2f0" />
+
+실제로 아래와 같이 로그를 각 중간 연산마다 남기고 코드를 실행해보면 로그가 다음처럼 나온다.
+
+```java
+List<Person> people = List.of(
+        new Person("김동준", 184, Gender.MALE),
+        new Person("송아름", 200, Gender.FEMALE),
+        new Person("채호연", 300, Gender.MALE),
+        new Person("홍은영", 400, Gender.FEMALE),
+        new Person("허예림", 500, Gender.FEMALE)
+);
+
+List<String> result = people.stream()
+        .peek(
+                person -> System.out.println("> 초기 데이터 명칭: " + person.name())
+        )
+        .filter(
+                person -> {
+                    System.out.println("필터링 데이터 명칭: " + person.name());
+                    return person.height() < 300;
+                }
+        )
+        .map(
+                person -> {
+                    System.out.println("매핑 데이터 명칭: " + person.name());
+                    return "키가 작은 " + person.name();
+                }
+        )
+        .toList();
+
+System.out.println(result);
+```
+```bash
+> 초기 데이터 명칭: 김동준
+필터링 데이터 명칭: 김동준
+매핑 데이터 명칭: 김동준
+> 초기 데이터 명칭: 송아름
+필터링 데이터 명칭: 송아름
+매핑 데이터 명칭: 송아름
+> 초기 데이터 명칭: 채호연
+필터링 데이터 명칭: 채호연
+> 초기 데이터 명칭: 홍은영
+필터링 데이터 명칭: 홍은영
+> 초기 데이터 명칭: 허예림
+필터링 데이터 명칭: 허예림
+[키가 작은 김동준, 키가 작은 송아름]
+```
+
+로그를 확인하면, 각 요소에 대한 연산이 전부 이뤄지고 나서 다음 연산으로 넘어가게 된다. 이를 명령형에서 생각했으면 중간 연산마다 모든 요소를 비교하고, 또 비교하고... 하는 형식으로 돌아갔을 것을 스트림에서는 한 요소에 대한 모든 연산을 일괄적으로(즉, 최종 연산이 확인되고 나서 그제야 연산이 이뤄지는 방식으로) 이뤄지게 된다. 이 점이 스트림의 **지연 연산(지연 실행)** 특성을 담고 있다.
+
+스트림이 지연 연산 전략을 채택한 이유는 바로 **실행의 최적화와 리소스 절약** 때문이다. 현재는 결과를 전부 반환하지만 만약 좀 더 복잡하게 생각해서 아래와 같은 요구사항과 그에 따른 의사코드를 비교하자.
+
+> 키가 300을 넘거나 같지 않은 사람 중 첫 번째 사람을 찾자
+
+```java
+// 명령형
+
+// 키가 300 미만인 사람 찾기
+for (초기 데이터 요소들) {
+    if (키 < 300) 중간 결과에 담기;
+};
+
+// 중간 결과 중 처음 마주하는 사람 찾기
+for (중간 데이터 요소들) {
+    if (인덱스가 0인가?) {
+        최종 결과에 담기;
+        break;
+    };
+};
+
+```
+
+두 번의 반복문을 거침으로써 시간 복잡도는 `초기 데이터 개수 * 중간 데이터 개수`만큼 연산된다. 어차피 중간 데이터는 `break`가 적용돼도 초기 데이터 개수에 따라 해당 로직의 실행시간이 결정되고 열심히 연산했음에도 불구하고 처음 마주한 데이터 외에는 전부 버려지게 되는 불필요한 작업이 된다. 이것을 스트림에서는 아래처럼 흘러가게 된다.
+
+```java
+// 스트림
+
+// 첫 번째 요소부터 연산: 키가 300 미만 검증(filter(p -> p.height() < 300))
+김동준 해당
+
+// 최종 연산에서 처음 마주하는 사람 반환(findFirst())
+김동준 반환
+```
+
+시간 복잡도는 최악의 경우에도 `초기 데이터 중 모든 연산을 만족하는 요소의 개수`까지 보장된다. 어떤 경우여도 명령형으로 연산하는 것보다 성능적으로 이점을 가져갈 수 있기 때문에 지연 연산 전략을 채택했다고 볼 수 있다. 이 점 때문에 스트림에서 가능한 개념이 **무한 스트림**인데, 어차피 무한한 길이의 리스트를 생각해도 최종 연산에서 한정하는 것이 논리적으로 당연하기 때문에 지연 연산 전략을 통해 무한 스트림의 활용 역시 자연스럽다.
+
+```java
+IntStream.iterate(1, n -> n + 1) // 1부터 시작해서 1씩 증가하는 무한 스트림
+        .limit(10) // 처음 10개만 가져오기
+        .forEach(System.out::println); // 출력
+``` 
+
+
+
