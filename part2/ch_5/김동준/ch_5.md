@@ -200,5 +200,151 @@ public class LargeScaleComputation {
 #### (2) LARGE_SIZE(대용량) 기준
 일반 스트림의 평균 초당 처리횟수(약 `40121 us/op`)는 병렬 스트림의 평균 초당 처리횟수(약 `10541 us/op`)의 4배 차이로, 병렬 스트림이 연산 속도가 4배 더 빠르다. 이를 통해 연산량이 많아질 수록 일반 스트림보다 병렬 스트림이 더 빠른 속도를 낼 수 있음을 확인할 수 있다.
 
-
 ### 2) 시나리오 2: 파일 입출력
+
+자주 스트림을 접하는 경우는 컬렉션 연산이긴 하지만, 그외에도 파일이나 네트워크 입출력 등에서도 스트림이 활용될 수 있다. 그렇기 때문에 파일을 쓰고 읽는 작업에 대해서도 스트림과 병렬 스트림의 차이가 얼마나 클 지 궁금해서 시나리오를 추가로 가정하였다.
+
+먼저, 파일 쓰기에 대해서 벤치마크를 세팅하고 수행해본다.
+
+```java
+@State(Scope.Benchmark) // 같은 벤치마크끼리 객체 공유(멀티스레드 측정용)
+@OutputTimeUnit(TimeUnit.MICROSECONDS) // 벤치마킹 결과 단위 설정
+@BenchmarkMode(Mode.All) // JMH의 벤치마크 실행 범위 지정
+public class FileWrite {
+
+    private final String FILE_PATH1 = System.getProperty("user.home") + "/Desktop/sequential.txt";
+    private final String FILE_PATH2 = System.getProperty("user.home") + "/Desktop/parallel.txt";
+
+    @Benchmark
+    public void sequentialWrite() throws IOException {
+        try (BufferedWriter writer = new BufferedWriter(new FileWriter(FILE_PATH1))) {
+            IntStream.range(0, 10_000)
+                    .forEach(i -> {
+                        try {
+                            writer.write("순차 스트림 라인: " + i + "\n");
+                        } catch (IOException e) {
+                            System.err.println(e.getMessage());
+                        }
+                    });
+        }
+    }
+
+    @Benchmark
+    public void parallelWrite() throws IOException {
+        try (BufferedWriter writer = new BufferedWriter(new FileWriter(FILE_PATH2))) {
+            IntStream.range(0, 10_000)
+                    .parallel()
+                    .forEach(i -> {
+                        try {
+                            writer.write("병렬 스트림 라인:  " + i + "\n");
+                        } catch (IOException e) {
+                            System.err.println(e.getMessage());
+                        }
+                    });
+        }
+    }
+}
+```
+
+이진 데이터가 아닌, 단순 문자열 데이터를 처리할 것이기 때문에 버퍼 관련 클래스를 활용하였고 각각에 대해 벤치마크를 수행하면 데스크톱에 `sequential.txt` 파일과 `parallel.txt` 파일이 생성되면서 벤치마크가 완료된다.
+
+<img width="80%" alt="스크린샷 2025-03-04 오후 4 10 17" src="https://github.com/user-attachments/assets/2cf19608-af0c-45e6-b99c-6191c65ff2d6" />
+
+<img width="80%" alt="스크린샷 2025-03-04 오후 4 11 36" src="https://github.com/user-attachments/assets/2e4c047c-d93f-478a-9f0b-19e2989105f1" />
+
+---
+
+이번에는 파일 읽기에 대해 스트림과 병렬 스트림으로 처리를 해본다. 내가 좋아하는 소설 중 하나인 **1984**의 원본 퍼블릭 도메인을 데스크톱에 위치한 txt 파일에 담은 내용을 읽고 거기서 **Big Brother**라는 문자열이 얼마나 등장하는지 빈도를 세리는 작업으로 테스트 시나리오를 짰다.
+
+<img width="80%" alt="스크린샷 2025-03-04 오후 4 19 15" src="https://github.com/user-attachments/assets/e97a359d-d0aa-4e5a-b52b-9055ac8e76f6" />
+
+```java
+package benchmark;
+
+import java.io.BufferedReader;
+import java.io.FileReader;
+import java.io.IOException;
+import java.util.concurrent.TimeUnit;
+import org.openjdk.jmh.annotations.Benchmark;
+import org.openjdk.jmh.annotations.BenchmarkMode;
+import org.openjdk.jmh.annotations.Mode;
+import org.openjdk.jmh.annotations.OutputTimeUnit;
+import org.openjdk.jmh.annotations.Scope;
+import org.openjdk.jmh.annotations.State;
+
+@State(Scope.Benchmark) // 같은 벤치마크끼리 객체 공유(멀티스레드 측정용)
+@OutputTimeUnit(TimeUnit.MICROSECONDS) // 벤치마킹 결과 단위 설정
+@BenchmarkMode(Mode.All) // JMH의 벤치마크 실행 범위 지정
+public class FileRead {
+
+    private final String FILE_PATH = System.getProperty("user.home") + "/Desktop/1984.txt";
+    private final String SEARCH_TERM = "Big Brother";
+
+    @Benchmark
+    public long sequentialRead() throws IOException {
+        try (BufferedReader reader = new BufferedReader(new FileReader(FILE_PATH))) {
+            return reader.lines()
+                    .filter(line -> line.contains(SEARCH_TERM))
+                    .count();
+        }
+    }
+
+    @Benchmark
+    public long parallelRead() throws IOException {
+        try (BufferedReader reader = new BufferedReader(new FileReader(FILE_PATH))) {
+            return reader.lines()
+                    .parallel()
+                    .filter(line -> line.contains(SEARCH_TERM))
+                    .count();
+        }
+    }
+}
+```
+
+이진 데이터가 아닌, 단순 문자열 데이터를 처리할 것이기 때문에 버퍼 관련 클래스를 활용하였고 각각에 대해 벤치마크를 수행하면 테스트가 완료된다.
+
+<img width="80%" alt="스크린샷 2025-03-04 오후 4 25 59" src="https://github.com/user-attachments/assets/1058ac65-498b-4957-ae4b-422e89d1f2a4" />
+
+---
+
+쓰기 작업과 읽기 작업에 대해 동일 분류 기준으로 순차 스트림과 병렬 스트림을 각각 비교한 표를 작성해봤다.
+
+#### (1) 파일 쓰기 작업
+
+| 벤치마크                           | 모드            | 초당 연산 횟수 (ops/us) | 평균 (us/op)   | 중앙값 (us/op)   | 최악 케이스 (us/op) |
+|----------------------------------|----------------|------------------------|----------------|------------------|---------------------|
+| **FileWrite.sequentialWrite**     | 초당 연산 횟수   | ≈ 10⁻³                  | 1311.319       | 1331.200         | 14057.472           |
+| **FileWrite.parallelWrite**       | 초당 연산 횟수   | ≈ 10⁻³                  | 2524.114       | 2510.848         | 6389.760            |
+| **FileWrite.sequentialWrite**     | 평균 시간       | -                        | 1311.319       | -                | -                   |
+| **FileWrite.parallelWrite**       | 평균 시간       | -                        | 2524.114       | -                | -                   |
+| **FileWrite.sequentialWrite**     | 샘플 시간       | 7622                     | 1311.319 ± 10.121 | 1331.200         | 14057.472           |
+| **FileWrite.parallelWrite**       | 샘플 시간       | 3958                     | 2525.445 ± 8.612  | 2510.848         | 6389.760            |
+| **FileWrite.sequentialWrite (ss)** | 동시 실행 시간   | -                        | 3410.541       | -                | -                   |
+| **FileWrite.parallelWrite (ss)**   | 동시 실행 시간   | -                        | 7370.083       | -                | -                   |
+
+파일 쓰기 작업에서는 초당 연산 횟수에서는 큰 차이를 보이지 않나, 평균 작업량에서 순차 스트림이 병렬 스트림보다 2배 정도 더 빠른 것을 볼 수 있다. 이것만 봐서는 병렬 스트림이 안 좋을 수 있으나, 오히려 최악 케이스에서는 병렬 스트림이 조금 더 빠르게 나타났다. 이를 기반으로 동시 실행 시간을 비교했을 때는 병렬 스트림이 2배 이상 성능이 낮게 나타난다.
+
+즉, 극단적인 상황에서는 병렬 스트림의 효율이 좋지만 입출력 작업에서 발생하는 오버헤드 이슈가 병렬 스트림에서 두드러지게 나타나기 때문에 순차 스트림이 전체적으로 파일 쓰기에 대해 더 높은 효율을 보이는 것이 아닐까 싶다.
+
+#### (2) 파일 읽기 작업
+
+| 벤치마크                             | 모드            | 초당 연산 횟수 (ops/us) | 평균 (us/op)   | 중앙값 (us/op)   | 최악 케이스 (us/op) |
+|------------------------------------|----------------|------------------------|----------------|------------------|---------------------|
+| **FileRead.sequentialRead**         | 초당 연산 횟수   | ≈ 10⁻³                  | 1272.505       | 1267.712         | 2033.664            |
+| **FileRead.parallelRead**           | 초당 연산 횟수   | ≈ 10⁻³                  | 1037.024       | 1024.000         | 2252.800            |
+| **FileRead.sequentialRead**         | 평균 시간       | -                        | 1272.505       | -                | -                   |
+| **FileRead.parallelRead**           | 평균 시간       | -                        | 1037.024       | -                | -                   |
+| **FileRead.sequentialRead**         | 샘플 시간       | 7855                     | 1272.505 ± 1.844  | 1267.712         | 2033.664            |
+| **FileRead.parallelRead**           | 샘플 시간       | 9704                     | 1029.841 ± 1.733  | 1024.000         | 2252.800            |
+| **FileRead.sequentialRead (ss)**    | 동시 실행 시간   | -                        | 3573.709       | -                | -                   |
+| **FileRead.parallelRead (ss)**      | 동시 실행 시간   | -                        | 6412.583       | -                | -                   |
+
+파일 읽기 작업에서도 초당 연산 횟수에서는 큰 차이가 없다. 다만 평균 시간이 근소하게 병렬 스트림이 우위로 결과가 나왔다. 중앙값이나 최악 케이스를 비교해도 병렬 스트림이 근소하게 밀리는 정도다. 다만 동시 실행에서 병렬 스트림이 순차 스트림에 비해 더 안 좋은 모습을 보이는데, 이 역시 입출력 작업에서 발생하는 오버헤드 이슈 때문에 병렬 스트림이 더 낮게 결과를 보이는 것으로 생각된다.
+
+즉, 연산량으로만 생각했을 때는 병렬 스트림이 읽기 작업에서 근소하게 좋은 모습을 보이지만 오버헤드를 고려해야 하는 점에는 변함이 없다.
+
+#### (3) 결론
+
+문자열 텍스트 기반의 입출력 처리에서는 병렬 스트림이 엄청 우위를 차지하는 모습까지는 아녔고 쓰기 작업에서는 오히려 순차 스트림이 효율을 보였다. 다만 앞서 말했듯, 이번 벤치마크에서는 문자열 텍스트 기반 입출력 테스트였기 때문에 추후 이미지나 비디오 등의 바이너리 데이터(이진 데이터)에 대한 처리를 `FileInputStream` 혹은 `FileOutputStream`을 기반으로 테스트하면 또 다른 결과가 나올 것으로 생각되지만 그 내용은 다음 기회에...
+
+
