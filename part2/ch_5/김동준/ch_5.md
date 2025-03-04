@@ -84,6 +84,121 @@ return getRawResult(); // 작업이 정상적으로 종료되었다면 계산된
 
 ## 2. 시나리오 테스트
 
-대용량 계산
-파일 처리
-입출력 처리
+진짜로 그냥 스트림과 병렬 스트림이 성능 차이가 나는지, 시나리오를 가정하고 테스트를 해보자. 교재에서 알려준 **JMH(Java Microbenchmark Harness)** 를 활용하여 각 기능에 대해 벤치마크(소프트웨어나 하드웨어의 성능을 객관적으로 평가하는 과정)를 수행해서 비교할 예정
+
+### 1) JMH 세팅
+
+>**참조소스**
+>- https://velog.io/@anak_2/Java-JMH-%EB%9D%BC%EC%9D%B4%EB%B8%8C%EB%9F%AC%EB%A6%AC%EB%A5%BC-%ED%99%9C%EC%9A%A9%ED%95%9C-%EC%84%B1%EB%8A%A5%ED%85%8C%EC%8A%A4%ED%8A%B8
+>- https://github.com/melix/jmh-gradle-plugin
+
+나는 주로 Gradle을 활용해 자바 프로젝트를 빌드한다. 위의 내용들을 참조해서 세팅을 적용했다.
+
+```gradle
+plugins {
+    id 'java'
+    id "me.champeau.jmh" version "0.7.1"
+}
+
+dependencies {
+    // ...
+
+    jmh 'org.openjdk.jmh:jmh-core:0.9'
+    jmh 'org.openjdk.jmh:jmh-generator-annprocess:0.9'
+    jmh 'org.openjdk.jmh:jmh-generator-bytecode:0.9'
+}
+
+jmh{
+    fork = 1 // JVM 내부 최적화 영향 배제를 위한 여러 프로세스 독립 실
+    warmupIterations = 1 // JVM 초기 최적화
+    iterations = 1 // 반복 테스트를 통한 신뢰성 확보
+}
+```
+
+`jmh` 명의의 별개 소스 모듈을 만들고 그 내부의 `java` 패키지에 속한 커스텀 패키지를 하나 세팅해서 테스트 대상 클래스를 작성 후, 벤치마크 관련 어노테이션을 부여해준 후 전체 프로젝트 모듈 루트에서 `./gradlew jmh`을 호출하면 테스트가 시작된다.
+
+### 2) 시나리오 1: 대용량 연산 비교
+
+병렬 처리라는 특성을 생각했을 때, 멀티 스레드를 활용하는 이유는 연산의 동시 처리를 통해 시간적인 이점을 앞당기는 것이다. 즉 연산의 길이가 아주 복잡하고 길 때, 해당 연산을 순차적으로 처리하는 것이 아닌 병렬적으로 처리하는 것이 시간적으로 더 빠르게 결과를 반환받을 수 있을 것이다. 이 점에 착안해서 벤치마크를 세팅하여서 테스트를 수행했다.
+
+연산은 다음과 같이 정의하고 용량 기준별로 추가 분류하여 총 4개의 메소드를 정의했다.
+
+>1. 짝수 요소 필터링
+>2. 요소 2배 매핑
+>3. 제수가 3인 연산의 나머지가 1인 요소 필터링
+>4. 요소 제곱 매핑
+>5. 최종 합산
+
+```java
+@State(Scope.Benchmark) // 같은 벤치마크끼리 객체 공유(멀티스레드 측정용)
+@OutputTimeUnit(TimeUnit.MICROSECONDS) // 벤치마킹 결과 단위 설정
+@BenchmarkMode(Mode.All) // JMH의 벤치마크 실행 범위 지정
+public class LargeScaleComputation {
+
+    private static final long SMALL_SIZE = 10_000;
+    private static final int LARGE_SIZE = 10_000_000;
+
+    @Benchmark
+    public long sequentialSmall() {
+        return LongStream.rangeClosed(1, SMALL_SIZE)
+                .filter(n -> n % 2 == 0)
+                .map(n -> n * 2)
+                .filter(n -> n % 3 == 1)
+                .map(n -> n * n)
+                .sum();
+    }
+
+    @Benchmark
+    public long parallelSmall() {
+        return LongStream.rangeClosed(1, SMALL_SIZE)
+                .parallel()
+                .filter(n -> n % 2 == 0)
+                .map(n -> n * 2)
+                .filter(n -> n % 3 == 1)
+                .map(n -> n * n)
+                .sum();
+    }
+
+    @Benchmark
+    public long sequentialLarge() {
+        return LongStream.rangeClosed(1, LARGE_SIZE)
+                .filter(n -> n % 2 == 0)
+                .map(n -> n * 2)
+                .filter(n -> n % 3 == 1)
+                .map(n -> n * n)
+                .sum();
+    }
+
+    @Benchmark
+    public long parallelLarge() {
+        return LongStream.rangeClosed(1, LARGE_SIZE)
+                .parallel()
+                .filter(n -> n % 2 == 0)
+                .map(n -> n * 2)
+                .filter(n -> n % 3 == 1)
+                .map(n -> n * n)
+                .sum();
+    }
+}
+```
+
+<img width="80%" alt="스크린샷 2025-03-04 오후 2 57 01" src="https://github.com/user-attachments/assets/e120535b-3eb4-41c9-a5c4-d9b2b8ad4795" />
+
+
+| 벤치마크                               | 모드   | 초당 연산 횟수 (ops/us)    | 평균 (us/op)     | 중앙값 (us/op)   | 최악 케이스 (us/op)   |
+|------------------------------------------|--------|-------------------|------------------|-----------------|-----------------|
+| **sequentialSmall**                      | thrpt  | 0.026             | 38.649           | 37.568          | 1359.872        |
+| **parallelSmall**                        | thrpt  | 0.029             | 34.093           | 33.024          | 612.352         |
+| **sequentialLarge**                      | thrpt  | ≈ 10⁻⁵            | 40121.422        | 38469.632       | 42139.648       |
+| **parallelLarge**                        | thrpt  | ≈ 10⁻⁴            | 10541.860        | 10723.328       | 13549.568       |
+
+꽤 유의미한 결과가 나왔다. 각 기준에 맞춰서 테스트 결과를 분류해보자면
+
+#### (1) SMALL_SIZE(일만) 기준
+일반 스트림의 평균 초당 처리횟수(약 `38.6 us/op`)나 병렬 스트림의 평균 초당 처리횟수(약 `34.1 us/op`)는 크게 차이가 나지 않는다.
+
+#### (2) LARGE_SIZE(대용량) 기준
+일반 스트림의 평균 초당 처리횟수(약 `40121 us/op`)는 병렬 스트림의 평균 초당 처리횟수(약 `10541 us/op`)의 4배 차이로, 병렬 스트림이 연산 속도가 4배 더 빠르다. 이를 통해 연산량이 많아질 수록 일반 스트림보다 병렬 스트림이 더 빠른 속도를 낼 수 있음을 확인할 수 있다.
+
+
+### 2) 시나리오 2: 파일 입출력
