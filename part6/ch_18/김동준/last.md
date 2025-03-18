@@ -183,8 +183,132 @@ public static void main(String[] args) throws InterruptedException {
 
 >*참조 : https://devbksheen.tistory.com/entry/%EB%AA%A8%EB%8D%98-%EC%9E%90%EB%B0%94-%EB%A6%AC%EC%95%A1%ED%8B%B0%EB%B8%8C-%EC%8A%A4%ED%8A%B8%EB%A6%BC%EA%B3%BC-Flow-API%EB%9E%80*
 
-### 2) Pub - Sub 모델 구현
+참고로, 웬만한 자바 인터페이스 모듈들은 기본적인 구현체들을 제공하는데(`List<T>` 인터페이스의 기본 구현체인 `ArrayList<T>`) Flow API는 그런 게 없다. 왜냐면 API를 만들 당시에 이미 RxJava, Akka 등의 다양한 리액티브 스트림의 자바 코드 라이브러리가 존재했기 때문이다. 라이브러리들이 독립적으로 개발돼서 존재하였고, 자바 9의 표준화 과정에서 Flow API의 인터페이스를 기반으로 구현하도록 진화됐기 때문에 기본 구현 클래스가 존재하지 않는다.
 
-- 객체가 생산과 전달을 책임 -> 발행자는 생산, 중재자가 전달, 구독자가 수신
-- Java Flow API -> 하지만 잘 안쓰임
-- 자바에서는 어울리지 않음. 하지만 스프링 웹플럭스 등 프레임워크에서 강점 발휘 vs 파이썬 등과의 비교
+### 2) Pub/Sub 모델 구현
+
+리액티브 애플리케이션을 구현할 수 있는 대표적인 패턴이자 모델로 **발행/구독 모델(Publisher/Subscriber 패턴)** 이 있다. 위에서 소개한 자바 Flow 클래스 역시 발행/구독 모델을 구현하기에 최적화된 인터페이스들을 제공한다. 간단하게 채팅 메세지를 발행해서 구독자들에게 전달하는 로직을 짜보자.
+
+비동기 스트림의 대상 데이터인 `Message`, 데이터의 흐름을 제어하는 `Subscription` 구현체, 데이터를 수신해서 처리하는 `Subscriber<Message>` 구현체를 작성한다.
+
+```java
+// 메세지 객체(전달자 명칭 파라미터 기반 임의의 랜덤한 메세지 내용 생성)
+public record Message(String name, String message) {
+
+    public static final Random random = new Random();
+
+    public static Message fetch(String name) {
+        if (random.nextInt(10) == 0) {
+            // 10% 확률로 메세지 전송 실패
+            throw new RuntimeException("메세지 전송 오류!");
+        }
+
+        char randomUpperCase = (char) (random.nextInt(26) + 'A');
+        return new Message(name, String.valueOf(randomUpperCase));
+    }
+
+    @Override
+    public String toString() {
+        return name + " : " + message;
+    }
+}
+```
+```java
+// 데이터 흐름 제어 목적의 중재자 객체
+public class ChatSubscription implements Subscription {
+
+    private final Subscriber<? super Message> subscriber;
+    private final String name;
+
+    public ChatSubscription(Subscriber<? super Message> subscriber, String name) {
+        this.subscriber = subscriber;
+        this.name = name;
+    }
+
+    @Override
+    public void request(long n) {
+        for (long i = 0L; i < n; i++) {
+            try {
+                subscriber.onNext(Message.fetch(name)); // 현재 메세지 Subscriber 전달
+            } catch (Exception e) {
+                subscriber.onError(e); // 에러 발생 시, Subscriber로 에러 전달
+                break;
+            }
+        }
+    }
+
+    @Override
+    public void cancel() {
+        subscriber.onComplete(); // 구독이 취소되면 완료 신호 Subscriber에게 전달
+    }
+}
+```
+```java
+// 발행 메세지 수신 및 처리 구독자 객체
+public class ChatSubscriber implements Subscriber<Message> {
+
+    private Subscription subscription;
+
+    @Override
+    public void onSubscribe(Subscription subscription) {
+        this.subscription = subscription;
+        subscription.request(1); // 구독 저장 후, 첫 번째 요청 전달
+    }
+
+    @Override
+    public void onNext(Message item) {
+        System.out.println(item); // 메세지 출력
+        this.subscription.request(1); // 다음 정보 요청
+    }
+
+    @Override
+    public void onError(Throwable throwable) {
+        System.out.println(throwable.getMessage()); // 에러 발생 시, 에러 메세지 출력
+    }
+
+    @Override
+    public void onComplete() {
+        System.out.println("종료");
+    }
+}
+```
+
+이제 Main 클래스의 psvm에서 발행자 `Publisher<Message>` 구현체를 통해 메세지를 발행해본다.
+
+```java
+public class Main {
+    public static void main(String[] args) {
+        // 사용자 '김동준'을 만들고 Subscriber 구독시킴
+        getChatMessage("김동준").subscribe(new ChatSubscriber());
+    }
+
+    private static Publisher<Message> getChatMessage(String name) {
+        return subscriber -> subscriber.onSubscribe(
+                new ChatSubscription(subscriber, name)
+        ); // 구독한 Subscriber에게 Chat 구독(ChatSubscription)을 전송하는 Publisher 반환
+    }
+}
+```
+<img width="80%" alt="스크린샷 2025-03-18 오후 4 35 11" src="https://github.com/user-attachments/assets/d97517f7-3da3-498c-84f3-ce01c0d411f9" />
+
+전체 흐름은 아래와 같다.
+
+1. `getChatMessage("김동준")` 호출:
+    - `Publisher<Message>` 반환. 이 `Publisher`는 `ChatSubscription`을 사용하여 구독자를 처리
+2. `Main` 클래스에서 구독:
+    - `getChatMessage("김동준").subscribe(new ChatSubscriber())`를 통해 `ChatSubscriber`가 구독자로 등록
+    - 구독자가 `onSubscribe()`를 호출하여 첫 번째 메시지를 요청
+3. `ChatSubscription`에서 메시지 발행:
+    - `ChatSubscription`은 메시지를 발행하고 `subscriber.onNext()`를 통해 구독자에게 메시지를 전달
+    - 구독자는 `onNext()`에서 메시지를 처리하고 다음 메시지를 요청
+4. `ChatSubscriber`에서 메시지 처리:
+    - 구독자는 `onNext()`를 통해 메시지를 처리. `request(1)`을 호출하여 다음 메시지를 요청
+    - 메시지가 모두 처리되면 `onComplete()`가 호출되어 종료 메시지가 출력
+  
+기존의 명령형에서는 메세지를 생산한 객체가 수신자에게 전달하는 책임까지 부담하는 구조로 코드가 짜여지는 것을, 발행자 - 중재자- 구독자의 세 단계로 나눠서 데이터의 발행과 처리, 제어에 대한 책임을 나눠서 컴포넌트의 독립성을 강화하고 시스템의 유연성을 확보하게 된다.
+
+## 3. 자바에서의 리액티브 프로그래밍
+
+위에서 언급했듯이 자바 자체가 리액티브 프로그래밍에 엄청 어울리는 언어는 아니라고 생각한다. 물론 다양한 함수형 API들이 제공되고 비동기 처리를 위한 멀티 스레드 개념을 적극적으로 활용할 수 있는 수단들이 제공되는 것은 분명 함수형 패러다임에 대한 훌륭한 대비책이겠지만, 태생 자체가 객체지향성을 지향하는 목적성을 띄는 것은 코드 작성 과정에서도 드문드문 들어나는 것이 느껴졌다.
+
+그렇기 때문에 여기서 그치지 않고 **Spring WebFlux** 같은 모듈이나 코틀린, 파이썬 같은 다른 언어들을 학습하여 리액티브 앱을 구현하기 위한 최적의 환경에 대한 이해도를 갖춰야 할 것이다. 어찌됐든 자바가 다른 언어 대비 가지는 최대의 장점이 엔터프라이즈 규모의 앱에 대하여 강력한 안정성 및 고성능 제공므로 이런 기존의 장점들을 바탕으로 어떻게 리액티브 앱 구현에서 자바를 활용할 수 있을 지를 고민하는 과정을 거쳐봐야겠다.
