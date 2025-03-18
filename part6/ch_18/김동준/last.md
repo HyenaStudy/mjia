@@ -97,6 +97,7 @@ public class AsyncTest {
 다만 비동기 프로그래밍을 위해 코드를 작성할 때, 흔하게 마주할 수 있는 가독성 나쁜 문제가 있는데 바로 **콜백 지옥**이다.
 
 ```java
+// Java
 public static void main(String[] args) {
     task1(result1 -> {
         System.out.println("Task 1 완료: " + result1);
@@ -113,6 +114,7 @@ public static void main(String[] args) {
 }
 ```
 ```js
+// JS
 task1(() => {
   task2(() => {
     task3(() => {
@@ -122,6 +124,7 @@ task1(() => {
 });
 ```
 ```py
+# Python
 def start():
     task1(lambda: task2(lambda: task3(lambda: task4(lambda: print("모든 작업 완료")))))
 
@@ -155,6 +158,32 @@ public static void main(String[] args) throws InterruptedException {
 후술하겠지만, 리액티브 프로그래밍의 핵심이 바로 이 비동기 프로그래밍을 기반으로 함수형 프로그래밍을 통해 보완하는 방향을 통해 데이터를 반응형으로 처리하는 기법이라고 할 수 있다.
 
 ## 2. 간단한 리액티브 애플리케이션 예제
+
+비동기 프로그래밍을 기반으로 함수형 프로그래밍을 통해 보완하는 코드 설계 방향을 파악했으니, 이제 데이터를 **반응형**으로 처리한다는 것에 대해 알아보자.
+반응형으로 처리한다는 것은 기존의 명령형 프로그래밍의 순차(위에서부터 한 줄씩)적인 처리를 한다는 것에서 큰 차이가 있는데 아래 그림을 보자
+
+![image](https://github.com/user-attachments/assets/49124801-2617-4fc7-8354-a979f0dbb0ae)
+
+기존 명령형은 위의 라인에서 코드를 그대로 읽어내려오면서 순차적으로 처리되므로 A의 값이 10으로 업데이트되는 것과 기존의 B와 C의 연산은 별개의 독립된 내용이다. 반대로 리액티브에서는 A의 값이 업데이트 되는 것이 **이벤트**처럼 인지되면서 기존의 B, C 연산들이 영향을 받아 반응(**Reactive**)하는 형태가 되기 때문에 연계된 연산들 역시 추가로 업데이트된다. 이벤트가 발생하는 것에 맞춰 추가 연산이 이뤄져야 하기 떄문에 **병렬 처리, 비동기 처리**가 리액티브 프로그래밍에서 핵심을 차지하게 된다. 그와 동시에, B와 C의 입장에서는 A가 1일 때와 A가 10일 때, 연산이 2번 이뤄진 셈이므로 캐싱이나 구독 취소, 조건 등을 통해 자원 관리에 주의를 기울여야 한다.
+
+### 1) 자바 Flow 클래스
+
+넷플릭스 등에서 제시한 RxJava 모듈 등도 있지만, 발행, 구독 관련 기능을 제공하는 자바 기본 **Flow** 클래스를 통해 간단한 리액티브 앱을 만들 수 있다.
+해당 API를 구성하는 핵심 인터페이스(`Publisher<T>`, `Subscription`, `Subscriber<T>`)들을 정리하자면 아래와 같다.
+
+![image](https://github.com/user-attachments/assets/66272598-533b-48df-be82-176bd55ecac6)
+
+- `Publisher`는 반드시 `Subscription`의 `request` 메서드에 정의된 개수 이하의 요소만 `Subscriber`에 전달해야 한다.
+- `Publisher`는 지정된 개수보다 적은 수의 요소를 `onNext`로 전달할 수 있으며 동작이 성공적으로 끝났으면 `onComplete`를 호출하고 문제가 발생하면 `onError`를 호출해 `Subscription`을 종료할 수 있다.
+- `Subscriber`는 요소를 받아 처리할 수 있음을 `Publisher`에 알려야 한다. 이런 방식으로 `Subscriber`는 `Publisher`에 역압력을 행사항 수 있고 `Subscriber`가 관리할 수 없이 너무 많은 요소를 받는 일을 피할 수 있다.
+- `onComplete`나 `onError` 신호를 처리하는 상황에서 `Subscriber`는 `Publisher`나 `Subscription`의 어떤 메서드도 호출할 수 없으며, `Subscription`이 최소 되었다고 가정해야 한다.
+- `Subscriber`는 `Subscription.request()` 메서드 호출이 없이도 언제든 종료 시그널을 받을 준비가 되어있어야 하며 `Subscription.cancel()`이 호출된 이후에라도 한 개 이상의 `onNext`를 받을 준비가 되어있어야 한다.
+- `Publisher`와 `Subscriber`는 정확하게 `Subscription`을 공유해야 하며 각각이 고유한 역할을 수행해야 한다. 그러려면 `onSubscribe`와 `onNext` 메서드에서 `Subscriber`는 `request` 메서드를 동기적으로 호출할 수 있어야 한다.
+- 표준에서는` Subscription.cancel()` 메서드는 몇 번을 호출해도 한 번 호출한 것과 같은 효과를 가져야 하며, 여러 번 이 메서드를 호출해도 다른 추가 호출에 영향이 없도록 ThreadSafe 해야 한다고 명시한다. 같은` Subscriber` 객체에 다시 가입하는 것은 권장하지 않지만 이런 상황에서 예외가 발생해야 한다고 명세서가 강제하진 않는다. 이전에 취소된 가입이 영구적으로 적용되었다면 이후의 기능에 영향을 주지 않을 가능성도 있기 때문이다.
+
+>*참조 : https://devbksheen.tistory.com/entry/%EB%AA%A8%EB%8D%98-%EC%9E%90%EB%B0%94-%EB%A6%AC%EC%95%A1%ED%8B%B0%EB%B8%8C-%EC%8A%A4%ED%8A%B8%EB%A6%BC%EA%B3%BC-Flow-API%EB%9E%80*
+
+### 2) Pub - Sub 모델 구현
 
 - 객체가 생산과 전달을 책임 -> 발행자는 생산, 중재자가 전달, 구독자가 수신
 - Java Flow API -> 하지만 잘 안쓰임
