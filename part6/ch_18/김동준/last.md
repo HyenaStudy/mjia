@@ -1,7 +1,161 @@
 # 리액티브 프로그래밍
 
-- 간단한 비동기 예제 jmh
-- 그냥 프로그래밍과의 비교
+사실 이번 스터디를 하면서 가장 바랐던 것은 **리액티브 프로그래밍** 구현을 위한 배경 지식을 쌓는 것이었다. 다만 자바란 언어 자체가 함수형과 리액티브 프로그래밍 등에 어울리지는 않다. 철저하게 객체지향적으로 코드가 설계돼고 그 과정에서 엄격한 타입 검증이 이뤄지기 때문에 좋게 말하자면 개발자의 의도를 듬뿍 담는 거고 나쁘게 말하면 일일이 개발자가 전부 챙겨야 하는 점에서, 선언형이 중시되는 함수형 프로그래밍과는 거리가 먼 언어라고 할 수 있다.
+
+그렇기 때문에 자바를 메인으로 삼은 나로서는 단순히 자바의 함수형 패러다임 관련 API를 이해하는 것에 그치지 않고, 스프링 웹플럭스와 같은 추가적인 프레임워크 활용 공부나 코틀린, 파이썬 등까지 나아가야 리액티브 프로그래밍이 무엇인지, 실전적으로 어떻게 활용할 수 있을 지에 대해 논할 수 있을 것이다. 그런 점에서 이번 교재는 아쉬움이 많이 남는다고 할 수 있겠다. 할 게 많네...
+
+## 1. 개념 정리
+
+사실 리액티브 프로그래밍의 용어조차 혼동이 잦을 때가 많다. 비동기 프로그래밍, 함수형 프로그래밍... 비슷하면서도 뭔가 다르지만 뭐가 구체적인 것인지 확실하게 안 잡혀 있어서 일단은 개념 교통정리부터 하고 넘어갈 예정
+
+![image](https://github.com/user-attachments/assets/6b19f546-96ba-48c8-ba52-bca1bff26185)
+
+### 1) 비동기 프로그래밍
+
+![image](https://github.com/user-attachments/assets/1cbd1a34-fdf0-4ebd-9809-060e449783b1)
+
+기존의 동기식 프로그래밍의 가장 큰 문제는 선형적인 시간 흐름 속에서 자원이 낭비되는 케이스가 잦은 것이었다. 즉, 다른 작업이 완료돼서 해당 작업의 응답이 도착할 때까지 자신의 작업은 중단된 상태로 잠드는 것이다. 간단하게 멀티 스레드를 생각했을 떄, 스레드 B가 작업 중이고 해당 작업이 완료된 응답을 대기하기 위해 스레드 A가 잠든 상태를 생각하면 된다(**블로킹**). 다만, 스레드는 잠들어도 여전히 자원을 점유하고 있게 된다. 이 과정에서 잠들지 않고 스레드 B의 작업과 별개로 스레드 A의 작업을 여전히 계속 이어나갈 수 있게 한다면(**논 블로킹**)? 이게 곧 비동기 프로그래밍 기법의 기초적인 시작점이라 볼 수 있다.
+
+#### (1) 간단한 예저
+
+```java
+public record Shop(String name) {
+
+    public static void delay() {
+        try {
+            Thread.sleep(1000L);
+        } catch (InterruptedException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    public double getPrice() {
+        delay();
+        Random random = new Random();
+        return (name.charAt(0) + name.charAt(1)) * random.nextDouble();
+    }
+}
+```
+
+간단한 불변 객체를 만들고 해당 로직에서 일부러 딜레이를 걸어준다. 즉, 기능 수행 과정에서 1초(조금 넘는?) 시간이 소요되도록 처리해뒀다. 
+그리고 아래와 같이, 데이터들의 일반적인 순차 스트림 동기 처리, 병렬 스트림 처리, 스트림 비동기 처리 로직을 짜고 벤치마킹해본다.
+
+```java
+@State(Scope.Benchmark) // 같은 벤치마크끼리 객체 공유(멀티스레드 측정용)
+@OutputTimeUnit(TimeUnit.MICROSECONDS) // 벤치마킹 결과 단위 설정
+@BenchmarkMode(Mode.All) // JMH의 벤치마크 실행 범위 지정
+public class AsyncTest {
+
+    private static final List<Shop> shops = Arrays.asList(
+            // 100개가 넘는 Shop 인스턴스들
+    );
+
+
+    @Benchmark
+    public List<String> findPrices() {
+        return shops.stream()
+                .map(s -> String.format("%s price is %.2f",
+                        s.name(), s.getPrice()))
+                .toList();
+    }
+
+    @Benchmark
+    public List<String> findPricesByParallelStream() {
+        return shops.parallelStream()
+                .map(s -> String.format("%s price is %.2f",
+                        s.name(), s.getPrice()))
+                .toList();
+    }
+
+    @Benchmark
+    public List<String> findPricesByAsync() {
+        List<CompletableFuture<String>> priceFutures =
+                shops.stream()
+                        .map(s -> CompletableFuture.supplyAsync(
+                                () -> s.name() + " price is " + s.getPrice()
+                        )).toList();
+
+        return priceFutures.stream().map(CompletableFuture::join).toList();
+    }
+}
+```
+<img width="80%" alt="스크린샷 2025-03-18 오후 2 31 35" src="https://github.com/user-attachments/assets/e4070b8e-6e09-4495-bd91-3bfec5162595" />
+
+| 테스트 명칭                        | 측정 모드 | 실행 시간 (us/op) | 비고 |
+|---------------------------------|---------|------------------|------|
+| **AsyncTest.findPrices**         | `thrpt` | ≈ 10⁻⁸ ops/us   | 처리량 매우 낮음 (순차 실행) |
+| **AsyncTest.findPricesByAsync**  | `thrpt` | ≈ 10⁻⁷ ops/us   | 비동기 방식, 10배 향상 |
+| **AsyncTest.findPricesByParallelStream** | `thrpt` | ≈ 10⁻⁷ ops/us   | 병렬 스트림, 10배 향상 |
+| **AsyncTest.findPrices**         | `avgt`  | 104,459,682.67  | 약 104초, 가장 느림 |
+| **AsyncTest.findPricesByAsync**  | `avgt`  | 15,056,668.96   | 약 15초, 7배 이상 향상 |
+| **AsyncTest.findPricesByParallelStream** | `avgt`  | 14,056,501.83   | 약 14초, 가장 빠름 |
+
+많은 결과들이 있지만 **처리량(thrpt)** 과 **평균 소요 시간(avgt)** 기준으로 비교하자면, 순차 스트림 방식의 처리량이 매우 낮고 소요 시간이 매우 오래 걸린 것을 파악할 수 있다. 이것을 동일 데이터 기준에서 비동기 처리(병렬 스트림 역시 비동기 처리이므로)로 개선했을 때, 처리량이 약 10배 이상 향상됐고 소요 시간은 거의 7배 가량 단축된 것을 확인할 수 있다.
+
+#### (2) 콜백 지옥
+
+다만 비동기 프로그래밍을 위해 코드를 작성할 때, 흔하게 마주할 수 있는 가독성 나쁜 문제가 있는데 바로 **콜백 지옥**이다.
+
+```java
+public static void main(String[] args) {
+    task1(result1 -> {
+        System.out.println("Task 1 완료: " + result1);
+        task2(result2 -> {
+            System.out.println("Task 2 완료: " + result2);
+            task3(result3 -> {
+                System.out.println("Task 3 완료: " + result3);
+                task4(result4 -> {
+                    System.out.println("Task 4 완료: " + result4);
+                });
+            });
+        });
+    });
+}
+```
+```js
+task1(() => {
+  task2(() => {
+    task3(() => {
+      console.log('All tasks completed');
+    });
+  });
+});
+```
+```py
+def start():
+    task1(lambda: task2(lambda: task3(lambda: task4(lambda: print("모든 작업 완료")))))
+
+```
+
+이 콜백 지옥이 발생하는 이유는 콜백 함수를 인자로 전달하는 과정이 중첩되면서 발생하게 된다. 콜백 함수는 파라미터로 전달되어 특정 시점에 호출되는 함수를 뜻하는데, 보통 콜백 함수의 기능 작성을 파라미터 위치에서 수행(자바의 경우에는 익명 클래스 혹은 람다식, 자바스크립트는 화살표 익명 함수, 파이썬은 람다 익명 함수)하기 때문에, 작성 과정에서 가독성이 나빠지게 되는 구조가 된다.
+
+이 콜백 지옥을 보완할 수 있는 방법 중 하나가 **함수형 프로그래밍**이다. 
+
+```java
+public static void main(String[] args) throws InterruptedException {
+    CompletableFuture.supplyAsync(() -> task1())
+            .thenApply(result1 -> {
+                System.out.println("Task 1 완료: " + result1);
+                return task2();
+            })
+            .thenApply(result2 -> {
+                System.out.println("Task 2 완료: " + result2);
+                return task3();
+            })
+            .thenApply(result3 -> {
+                System.out.println("Task 3 완료: " + result3);
+                return task4();
+            })
+            .thenAccept(result4 -> System.out.println("Task 4 완료: " + result4));
+}
+```
+
+위의 예제는 아까 본 자바의 콜백 지옥 예제 코드와 동일한 기능을 수행하지만, 가독성이 어느 정도 보완된 것을 확인할 수 있다. `CompletableFuture`의 메소드 체이닝을 통해 각 작업들을 연결하듯이 작성하면서 각 작업 명시를 명확하게 표현하고 있다. 이것 외에도 여러 리액티브 라이브러리를 통해 간결하면서 가독성 좋게 표현할 수 있다.
+
+후술하겠지만, 리액티브 프로그래밍의 핵심이 바로 이 비동기 프로그래밍을 기반으로 함수형 프로그래밍을 통해 보완하는 방향을 통해 데이터를 반응형으로 처리하는 기법이라고 할 수 있다.
+
+## 2. 간단한 리액티브 애플리케이션 예제
+
 - 객체가 생산과 전달을 책임 -> 발행자는 생산, 중재자가 전달, 구독자가 수신
 - Java Flow API -> 하지만 잘 안쓰임
 - 자바에서는 어울리지 않음. 하지만 스프링 웹플럭스 등 프레임워크에서 강점 발휘 vs 파이썬 등과의 비교
